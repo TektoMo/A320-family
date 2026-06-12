@@ -5139,6 +5139,9 @@
 		<Simbrief>
 			<file>Aircraft/A320-family/Nasal/FMGC/SimbriefParser.nas</file>
 		</Simbrief>
+		<Loadsheet>
+			<file>Aircraft/A320-family/Nasal/loadsheet.nas</file>
+		</Loadsheet>
 	</nasal>
 
 	<maintainance>
