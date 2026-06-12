@@ -16,8 +16,6 @@ var monthNames = {
 # Initialize Numerical Values as parsed from somewhere else
 
 
-var test = "Hallo";
-
 var flightPlan = {
     zfw: nil,
     tof: nil,
@@ -72,12 +70,12 @@ var construct = func(lsFinal) {
     # EDNO with increments
     Loadsheet.edno = Loadsheet.edno + 1;
     raw = raw ~ "EDNO " ~ str(edno) ~ "\n";
-    # Flight number, day of flight, day of LS generation TODO read gen time from simbrief
+    # Flight number, day of flight, day of LS generation
     raw = (
         raw ~ fmgc.FMGCInternal.flightNum ~
         "/" ~
         (var day = str(getprop("sim/time/utc/day"))) ~
-        " " ~ day ~
+        " " ~ day ~                                    # TODO read generation time from simbrief instead
         monthNames[getprop("sim/time/utc/month")] ~
         right(str(getprop("sim/time/utc/year")), 2) ~ "\n"
         );
