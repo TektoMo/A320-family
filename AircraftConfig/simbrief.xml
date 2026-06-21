@@ -91,10 +91,19 @@
 		<button>
 			<x>40</x>
 			<y>10</y>
+			<legend>Init Loadsheet</legend>
+			<binding>
+				<command>nasal</command>
+				<script>Loadsheet.init()</script>
+			</binding>
+		</button>
+		<button>
+			<x>40</x>
+			<y>10</y>
 			<legend>Send Prelim Loadsheet</legend>
 			<binding>
 				<command>nasal</command>
-				<script>Loadsheet.construct(0);</script>
+				<script>Loadsheet.construct(Loadsheet.lsFinal, Loadsheet.data.planned, Loadsheet.data.actual); </script>
 			</binding>
 		</button>
 		<button>
