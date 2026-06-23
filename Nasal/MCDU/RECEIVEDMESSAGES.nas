@@ -224,7 +224,7 @@ var receivedMessagePage = {
 		me.arrowsMatrix = [[0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0]];
 	},
 	_setupPageWithData: func() {
-		me.title = "ACARS MESSAGE";
+		me.title = "AOC MSG DISPLAY";
 		me.L6 = [" RETURN", nil, "wht"];
 		me.arrowsMatrix = [[0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0]];
 		me.arrowsColour = [["blu", "blu", "blu", "blu", "blu", "wht"], ["ack", "ack", "ack", "ack", "ack", "ack"]];
