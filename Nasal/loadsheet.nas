@@ -8,17 +8,12 @@ var activate = 1;  # TODO als Setting in der GUI verfügbar machen
 var simbrief = 1;  # TODO checken ob Simbrief gelaufen ist
 
 
-var lsFinal = 1;
+var lsFinal = 0;
 var edno = 0;
 
 var offset = -3.62865;
 var maclength = 4.1935;
-var CGinch2MAC = func (cg, offset, maclength) {
-    var cg = cg;
-    var cgM = cg * 0.0254;
-    var MAC = (( cgM - offset ) / maclength ) * 100;
-    return MAC;
-};
+
 
 
 
@@ -63,43 +58,29 @@ var init = func() {
 
                     p.diffMaxWeights = [ ( p.maxZfw - p.zfw ), ( p.maxTow - p.tow ), ( p.maxLaw - p.law )];
 
+                    var limits = Loadsheet.calculate.limitingFactor(p.diffMaxWeights);
 
-                    var limitingFactorCalc = func() {
-                        var minVal = p.diffMaxWeights[0];
-                        var i = 1;
-                        var factorIndex = 1;
-                        foreach (var n; p.diffMaxWeights) {
-                            if (n < minVal) {
-                                minVal = n;
-                                factorIndex = i;
-
-                            }
-                            i += 1;
-                        }
-                        p.underload = minVal;
-                        p.limitingFactor = factorIndex ;             # 1 = ZFW, 2 = TOW, 3 = LAW
-
-                    };
-                    limitingFactorCalc();
+                    p.limitingFactor = limits[0]; # 1 = ZFW, 2 = TOW, 3 = LAW
+                    p.underload = limits[1];
 
                     ## FUEL
                     p.tif = Simbrief.SimbriefParser.store1.getChild("enroute_burn").getValue();           # Trip fuel
                     p.tof = Simbrief.SimbriefParser.store1.getChild("plan_takeoff").getValue();                        # Take off fuel
 
                     # CG
-                    p.macZfw = "NA!";
-                    p.macTow = "NA!";
-                    p.macLaw = "NA!";
+                    p.cgZfw = Loadsheet.calculate.CG.zfw();
+                    p.macZfw = sprintf("%4.1f", math.round(Loadsheet.calculate.CGinch2MAC(p.cgZfw, offset, maclength), 0.1));
+                    p.macTow = "NA";
+                    p.macLaw = "NA";
 
                     p.pax = Simbrief.SimbriefParser.store2.getChild("pax_count").getValue();
 #                    p.pax = Simbrief.SimbriefParser.store2.getChild("pax_count_actual").getValue();
                     p.crewPilots = 5; # In Simbrief als <crew> hinterlegt, man muss zählen
                     p.crewTotal = 7;
                     # Cabin sections
-
-                    p.cabinFront = nil;
-                    p.cabinMid = nil;
-                    p.cabinRear = nil;
+                    p.paxFront = p.pax / 3; ### TODO mit Loadmanager abstimmen
+                    p.paxMid = p.pax / 3;
+                    p.paxRear = p.pax / 3 ;
 
                     data.planned = p;           # Write into data.planned
 
@@ -109,7 +90,7 @@ var init = func() {
 
                     data.actual.zfw = nil;
                     data.actual.tof = nil;
-                    data.actual.fuelInTanks = nil;
+                    data.actual.fuelInTanks = sprintf("%s", math.round(getprop("/fdm/jsbsim/propulsion/total-fuel-lbs") * LB2KG, 10));
                     data.actual.tow = nil;
                     data.actual.tif = nil;
                     data.actual.law = nil;
@@ -120,9 +101,9 @@ var init = func() {
 
                     # Cabin sections
 
-                    data.actual.cabinFront = nil;
-                    data.actual.cabinMid = nil;
-                    data.actual.cabinRear = nil;
+                    data.actual.paxFront = nil;
+                    data.actual.paxMid = nil;
+                    data.actual.paxRear = nil;
 
         } else {
         print("Loadsheets deactivated");
@@ -130,89 +111,115 @@ var init = func() {
 };
 
 var calculate = {
-    CGZfwIn: func () {
-        var zahler = (
-        (getprop("/fdm/jsbsim/inertia/empty-weight-lbs") * getprop("/fdm/jsbsim/inertia/empty-weight-x-in"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[0]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[1]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[2]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[3]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[4]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[5]"))
-        );
 
-    var nenner = (
-        getprop("/fdm/jsbsim/inertia/empty-weight-lbs")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]")
-        );
+    limitingFactor: func(diffs) {
+        var minVal = diffs[0];
+        var i = 1;
+        var factorIndex = 1;
+        foreach (var n; diffs) {
+            if (n < minVal) {
+                minVal = n;
+                factorIndex = i;
+            }
+            i += 1;
+        }
+#         p.underload = minVal;
+#         p.limitingFactor = factorIndex ;
 
-    print(nenner ~ "\n");
-    print(zahler ~ "\n");
-
-    var cg = zahler/nenner;
-    print(cg ~ " inches CGZFW");
-
-    return cg;
-
+        var res = [factorIndex, minVal];
+        return res;
     },
-    CGcurrent: func () {
-        var zahler = (
-        (getprop("/fdm/jsbsim/inertia/empty-weight-lbs") * getprop("/fdm/jsbsim/inertia/empty-weight-x-in"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[0]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[1]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[2]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[3]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[4]"))
-        + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[5]"))
 
-        + (getprop("/fdm/jsbsim/propulsion/tank/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[1]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[1]/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[2]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[2]/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[3]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[3]/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[4]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[4]/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[5]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[5]/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[6]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[6]/x-position"))
-        + (getprop("/fdm/jsbsim/propulsion/tank[7]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[7]/x-position"))
-        );
+    CGinch2MAC: func (cg, offset, maclength) {
+        var cg = cg;
+        var cgM = cg * IN2M;
+        var mac = (( cgM - offset ) / maclength ) * 100;
+        return mac;
+    },
 
-        var nenner = (
-        getprop("/fdm/jsbsim/inertia/empty-weight-lbs")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]")
-        + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]")
+    CG: {
 
-        + getprop("/fdm/jsbsim/propulsion/tank[1]/contents-lbs")
-        + getprop("/fdm/jsbsim/propulsion/tank[2]/contents-lbs")
-        + getprop("/fdm/jsbsim/propulsion/tank[3]/contents-lbs")
-        + getprop("/fdm/jsbsim/propulsion/tank[4]/contents-lbs")
-        + getprop("/fdm/jsbsim/propulsion/tank[5]/contents-lbs")
-        + getprop("/fdm/jsbsim/propulsion/tank[6]/contents-lbs")
-        + getprop("/fdm/jsbsim/propulsion/tank[7]/contents-lbs")
-        );
+        zfw: func () {
+            var numerator = (
+            (getprop("/fdm/jsbsim/inertia/empty-weight-lbs") * getprop("/fdm/jsbsim/inertia/empty-weight-x-in"))
+            + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[0]"))
+            + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[1]"))
+            + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[2]"))
+            + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[3]"))
+            + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[4]"))
+            + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[5]"))
+            );
 
-    print(nenner ~ "\n");
-    print(zahler ~ "\n");
+            var denominator = (
+                getprop("/fdm/jsbsim/inertia/empty-weight-lbs")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]")
+                );
 
-    var cg = zahler/nenner;
-    print(cg ~ " inches CG GROSSWEIGHT");
-    print(Loadsheet.data.planned = CGinch2MAC(cg, offset, maclength));
+            var cg = numerator/denominator;
 
-    return cg;
-#
-#     Tank 0-8
-#     /fdm/jsbsim/propulsion/Tank  /contents-lbs
-#                                     /x-position
-#
 
-    }
+            return cg;
+
+            },
+        current: func () {
+                var numerator = (
+                (getprop("/fdm/jsbsim/inertia/empty-weight-lbs") * getprop("/fdm/jsbsim/inertia/empty-weight-x-in"))
+                + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[0]"))
+                + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[1]"))
+                + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[2]"))
+                + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[3]"))
+                + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[4]"))
+                + (getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]") * getprop("/fdm/jsbsim/inertia/pointmass-location-X-inches[5]"))
+
+                + (getprop("/fdm/jsbsim/propulsion/tank/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[1]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[1]/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[2]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[2]/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[3]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[3]/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[4]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[4]/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[5]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[5]/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[6]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[6]/x-position"))
+                + (getprop("/fdm/jsbsim/propulsion/tank[7]/contents-lbs") * getprop("/fdm/jsbsim/propulsion/tank[7]/x-position"))
+                );
+
+                var denominator = (
+                getprop("/fdm/jsbsim/inertia/empty-weight-lbs")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[3]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[4]")
+                + getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[5]")
+
+                + getprop("/fdm/jsbsim/propulsion/tank/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[1]/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[2]/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[3]/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[4]/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[5]/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[6]/contents-lbs")
+                + getprop("/fdm/jsbsim/propulsion/tank[7]/contents-lbs")
+                );
+
+
+
+            var cg = numerator/denominator;
+            print(cg ~ " inches CG GROSSWEIGHT");
+            print(Loadsheet.data.planned = CGinch2MAC(cg, offset, maclength));
+
+            return cg;
+                #
+                #     Tank 0-8
+                #     /fdm/jsbsim/propulsion/Tank  /contents-lbs
+                #                                     /x-position
+                #
+
+            }
+    },
 };
 
 
@@ -274,6 +281,9 @@ var construct = func(lsFinal, planned, actual) {
     # PAX/0/159 TTL 159
     raw ~= (
         "PAX/" ~ data.planned.pax ~ " " ~ "TTL " ~ data.planned.pax ~ "\n");
+#     # PAX in sections
+#     raw ~= (
+#         "A" ~ data.planned.paxFront ~ " B" ~ data.planned.paxMid ~ " C" ~ data.planned.paxRear ~ "\n");
     # MAC at ZFW
     raw ~= (
         "MACZFW " ~ data.planned.macZfw ~ "\n");
@@ -283,19 +293,25 @@ var construct = func(lsFinal, planned, actual) {
     # MAC at LAW
     raw ~= (
         "MACLAW " ~ data.planned.macLaw ~ "\n");
-    data.planned.output = raw;
+    # Fuel in tanks
+    raw ~= (
+        "FUEL IN TANKS " ~ data.actual.fuelInTanks ~ "\n");
+
+    data.planned.output = raw;                                  ### If you want a correctly formatted string with newlines, here is your chance to get it.
 
     ### Normalize the line width to accomodate MCDU window
     var lineStretch = func() {
         var output = "";
         var sep = split("\n", raw);
-        forindex (var i; sep) {
-            var len = digitsPerLine - size(sep[i]);
-            while (len > 0) {
-                sep[i] ~= " ";
-                len -= 1;
-            }
-            output ~= sep[i];
+        foreach (var i; sep) {
+            output ~= sprintf("%-" ~ digitsPerLine ~ "s", i);
+
+#             var len = digitsPerLine - size(sep[i]);
+#             while (len > 0) {
+#                 sep[i] ~= " ";
+#                 len -= 1;
+#             }
+#             output ~= sep[i];
         }
         return output;
     }
