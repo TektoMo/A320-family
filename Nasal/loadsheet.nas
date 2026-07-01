@@ -1,7 +1,14 @@
-# A3XX Loadsheets via ACARS
+# A320 Loadsheets via ACARS
 # Moritz Beitelschmidt
 
 # Copyright (c) 2026 Moritz Beitelschmidt
+
+
+## TODO
+
+# - Final Loadsheet (alles andere als trivial, da die gewichte nicht einfach nur neue summen sind sondern den verbrauch beeinflussen etc. Ließe sich aber trotzdem erstmal "einfach" berechnen)
+
+
 
 var digitsPerLine = 24;
 var activate = 1;  # TODO als Setting in der GUI verfügbar machen
@@ -38,8 +45,8 @@ var init = func() {
                     var p = {};             # Assemble planned data into temporary hash
 
                     p.flightID = (Simbrief.SimbriefParser.OFP.getNode("general/icao_airline").getValue() or "") ~ (Simbrief.SimbriefParser.OFP.getNode("general/flight_number").getValue() or "");
-                    p.departureIATA = (Simbrief.SimbriefParser.OFP.getNode("origin/iata_code").getValue() or "NA");
-                    p.destinationIATA = (Simbrief.SimbriefParser.OFP.getNode("destination/iata_code").getValue() or "NA");
+                    p.departureID = (Simbrief.SimbriefParser.OFP.getNode("origin/iata_code").getValue() or "NA");
+                    p.destinationID = (Simbrief.SimbriefParser.OFP.getNode("destination/iata_code").getValue() or "NA");
 
                     p.registration = (Simbrief.SimbriefParser.OFP.getNode("aircraft/reg").getValue() or "NA");
 
@@ -65,19 +72,22 @@ var init = func() {
 
                     ## FUEL
                     p.tif = Simbrief.SimbriefParser.store1.getChild("enroute_burn").getValue();           # Trip fuel
-                    p.tof = Simbrief.SimbriefParser.store1.getChild("plan_takeoff").getValue();                        # Take off fuel
+                    p.tof = Simbrief.SimbriefParser.store1.getChild("plan_takeoff").getValue();           # Take off fuel
+                    p.laf = Simbrief.SimbriefParser.store1.getChild("plan_landing").getValue();           # Landing fuel
 
                     # CG
                     p.cgZfw = Loadsheet.calculate.CG.zfw();
                     p.macZfw = sprintf("%4.1f", math.round(Loadsheet.calculate.CGinch2MAC(p.cgZfw, offset, maclength), 0.1));
-                    p.macTow = "NA";
-                    p.macLaw = "NA";
+                    p.macTow = (Loadsheet.calculate.CG.projected(p.tof) or "NA");
+                    p.macLaw = (Loadsheet.calculate.CG.projected(p.laf) or "NA");
 
                     p.pax = Simbrief.SimbriefParser.store2.getChild("pax_count").getValue();
 #                    p.pax = Simbrief.SimbriefParser.store2.getChild("pax_count_actual").getValue();
                     p.crewPilots = 5; # In Simbrief als <crew> hinterlegt, man muss zählen
                     p.crewTotal = 7;
                     # Cabin sections
+
+                    p.paxWeight = (Simbrief.SimbriefParser.store2.getChild("pax_weight").getValue() or 79.379 ) * KG2LB;
                     p.paxFront = p.pax / 3; ### TODO mit Loadmanager abstimmen
                     p.paxMid = p.pax / 3;
                     p.paxRear = p.pax / 3 ;
@@ -86,25 +96,42 @@ var init = func() {
 
                 }
 
-                    data.actual.registration = getprop("/options/model-options/registration");
+                    # Fetch flightplan
+                    var fp = flightplan();
 
-                    data.actual.zfw = nil;
-                    data.actual.tof = nil;
-                    data.actual.fuelInTanks = sprintf("%s", math.round(getprop("/fdm/jsbsim/propulsion/total-fuel-lbs") * LB2KG, 10));
-                    data.actual.tow = nil;
-                    data.actual.tif = nil;
-                    data.actual.law = nil;
+                    var a = {};
 
-                    data.actual.macZfw = nil;
-                    data.actual.macTow = nil;
-                    data.actual.paxTotal = nil;
+                    a.registration = getprop("/options/model-options/registration");
+                    a.departureID = (fp.departure.id or "NA");                              # TODO fetch the IATA codes
+                    a.destinationID = (fp.destination.id or "NA");
+
+                    #a.zfw = getprop("/fdm/jsbsim/inertia/XXXX");
+                    a.maxZfw = math.round((getprop("/limits/mass-and-balance/maximum-zero-fuel-mass-lbs") * LB2KG), 100);
+
+                    a.tow = math.round(fmgc.FMGCInternal.tow * LB2KG * 1000);                                               ### TODO Need to think if it is ok to use FMGC Data for the loadsheet....
+                    a.maxTow = math.round((getprop("/limits/mass-and-balance/maximum-takeoff-mass-lbs") * LB2KG), 100);
+
+                    a.law = math.round(fmgc.FMGCInternal.lw * LB2KG * 1000);
+                    a.maxLaw = math.round((getprop("/limits/mass-and-balance/maximum-landing-mass-lbs") * LB2KG), 100);
+
+                    a.fuelInTanks = math.round(getprop("/fdm/jsbsim/propulsion/total-fuel-lbs") * LB2KG, 10);
+                    a.tof = a.fuelInTanks - fmgc.FMGCInternal.taxiFuel * LB2KG * 1000;
+                    a.tif = fmgc.FMGCInternal.tripFuel * LB2KG;
+
+
+                    a.macZfw = nil;
+                    a.macTow = nil;
 
                     # Cabin sections
 
-                    data.actual.paxFront = nil;
-                    data.actual.paxMid = nil;
-                    data.actual.paxRear = nil;
+                    a.paxWeight = (data.planned.paxWeight or 79.379 * KG2LB) ;
+                    a.paxFront = math.floor(getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]") / a.paxWeight);
+                    a.paxMid = math.floor(getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]") / a.paxWeight);
+                    a.paxRear = math.floor(getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]") / a.paxWeight);
 
+                    a.paxTotal = a.paxFront + a.paxMid + a.paxRear;
+
+                    data.actual = a;           # Write into data.actual
         } else {
         print("Loadsheets deactivated");
         }
@@ -218,12 +245,31 @@ var calculate = {
                 #                                     /x-position
                 #
 
+            },
+            projected: func (fuel) {                     ### MOCKUP!!!
+                if (getprop("/load-manager") != nil) {
+                    # askTheLoadManager
+                    return cg;
+                } else {
+                    return nil;
+                }
+
             }
-    },
+    }
+
+
 };
 
 
 var construct = func(lsFinal, planned, actual) {
+
+    var prefix = nil;
+    if (lsFinal != 0) {
+        prefix = data.planned;
+    } else {
+        prefix = data.actual;
+    }
+
     # Header with loadsheet type designation
     var raw = "- LOADSHEET ";
         if ( lsFinal != 1 ) {
@@ -246,9 +292,9 @@ var construct = func(lsFinal, planned, actual) {
         monthNames[getprop("sim/time/utc/month")] ~
         right(str(getprop("sim/time/utc/year")), 2) ~ "\n"
         );
-    # DEP and ARR IATA, registration, Crew on board
+    # DEP and ARR ID, registration, Crew on board
     raw ~= (
-        data.planned.departureIATA ~ " " ~ data.planned.destinationIATA ~
+        data.planned.departureID ~ " " ~ data.planned.destinationID ~
         "  " ~ (data.actual.registration or data.planned.registration) ~ "   " ~ str(data.planned.crewPilots) ~ "/" ~ str(data.planned.crewTotal) ~ "\n"
     );
     # ZFW
