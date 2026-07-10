@@ -33,12 +33,15 @@ var monthNames = {
 # Initialize Numerical Values as parsed from somewhere else or the sim
 
 
-var data = {
-    planned: {},
-    actual: {},
-};
+var data = ["empty"];
+
 var init = func() {
-        if (activate == 1) {           # Hier checken ob Loadsheets in den Settings aktiviert
+
+    edno += 1;
+    var r = {planned:, actual:,};
+    append(data, r);
+
+    if (activate == 1) {           # Hier checken ob Loadsheets in den Settings aktiviert
             if (simbrief == 1) {       # Hier checken ob Simbrief plan vorhanden, vielleicht noch timestamp abfragen damit bei neuem call durch simbrief neu geplant wird
 
                 # Values as taken from the (simbrief) flightplan
@@ -92,7 +95,7 @@ var init = func() {
                     p.paxMid = p.pax / 3;
                     p.paxRear = p.pax / 3 ;
 
-                    data.planned = p;           # Write into data.planned
+                    data[-1].planned = p;       # Write into data.planned with edition number as index
 
                 }
 
@@ -124,14 +127,14 @@ var init = func() {
 
                     # Cabin sections
 
-                    a.paxWeight = (data.planned.paxWeight or 79.379 * KG2LB) ;
+                    a.paxWeight = (data[-1].planned.paxWeight or 79.379 * KG2LB) ;
                     a.paxFront = math.floor(getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[0]") / a.paxWeight);
                     a.paxMid = math.floor(getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[1]") / a.paxWeight);
                     a.paxRear = math.floor(getprop("/fdm/jsbsim/inertia/pointmass-weight-lbs[2]") / a.paxWeight);
 
                     a.paxTotal = a.paxFront + a.paxMid + a.paxRear;
 
-                    data.actual = a;           # Write into data.actual
+                    data[-1].actual = a;         # Write into data.actual
         } else {
         print("Loadsheets deactivated");
         }
@@ -261,8 +264,9 @@ var calculate = {
 };
 
 
-var construct = func(lsFinal, planned, actual) {
+var construct = func(lsFinal) {
 
+    var revision = nil;
     var prefix = nil;
     if (lsFinal != 0) {
         prefix = data.planned;
@@ -270,86 +274,118 @@ var construct = func(lsFinal, planned, actual) {
         prefix = data.actual;
     }
 
+### LOADSHEET LINES AS INDIVIDUAL FUNCTIONS
+
     # Header with loadsheet type designation
-    var raw = "- LOADSHEET ";
-        if ( lsFinal != 1 ) {
-            raw ~= "PRELIM\n";
+    var l_header = func(f) {
+        var r = "- LOADSHEET ";
+        if ( f != 1 ) {
+            l_header ~= "PRELIM";
         }
         else {
-            raw ~= "FINAL\n";
+            l_header ~= "FINAL";
         }
+        return r;
+    }
 
     # EDNO with increments
-    Loadsheet.edno = Loadsheet.edno + 1;
-    raw ~= "EDNO " ~ str(Loadsheet.edno) ~ "\n";
+
+
+    var l_edno = "EDNO " ~ str(Loadsheet.edno);
 
     # Flight number, day of flight, day of ls generation
-    raw ~= (
+    var l_fdata = (
         fmgc.FMGCInternal.flightNum ~
         "/" ~
         (var day = str(getprop("sim/time/utc/day"))) ~
         " " ~ day ~                                    # TODO read generation time from simbrief instead
         monthNames[getprop("sim/time/utc/month")] ~
-        right(str(getprop("sim/time/utc/year")), 2) ~ "\n"
+        right(str(getprop("sim/time/utc/year")), 2)
         );
     # DEP and ARR ID, registration, Crew on board
-    raw ~= (
+    var  l_deparr = (
         data.planned.departureID ~ " " ~ data.planned.destinationID ~
-        "  " ~ (data.actual.registration or data.planned.registration) ~ "   " ~ str(data.planned.crewPilots) ~ "/" ~ str(data.planned.crewTotal) ~ "\n"
+        "  " ~ (data.actual.registration or data.planned.registration) ~ "   " ~ data.planned.crewPilots ~ "/" ~ data.planned.crewTotal
     );
     # ZFW
-    raw ~= (
+    var l_zfw = (
         "ZFW " ~ data.planned.zfw ~ "  MAX " ~ data.planned.maxZfw );
         if (data.planned.limitingFactor == 1) {
-            raw ~= " L";
-        } raw ~= " \n";
+            l_zfw ~= " L";
+        };
     # TOF
-    raw ~= (
-        "TOF " ~ data.planned.tof ~ "\n" );
+    var l_tof = (
+        "TOF " ~ data.planned.tof );
     # TOW
-    raw ~= (
+    var l_tow = (
         "TOW " ~ data.planned.tow ~ "  MAX " ~ data.planned.maxTow );
         if (data.planned.limitingFactor == 2) {
-            raw ~= " L";
-        } raw ~= " \n";
+            l_tow ~= " L";
+        };
     # TIF
-    raw ~= (
-        "TIF " ~ data.planned.tif ~ "\n" );
+    var l_tif = (
+        "TIF " ~ data.planned.tif );
     # Landing weight & max landing weight
-    raw ~= (
+    var l_law = (
         "LAW " ~ data.planned.law ~ "  MAX " ~ data.planned.maxLaw );
-    if (data.planned.limitingFactor == 3) {
-        raw ~= " L";
-    } raw ~= " \n";
+        if (data.planned.limitingFactor == 3) {
+            l_law ~= " L";
+        };
     # Underload
-    raw ~= (
-        "UNDLD " ~ data.planned.underload ~ "\n");
+    var l_undld = (
+        "UNDLD " ~ data.planned.underload);
     # PAX/0/159 TTL 159
-    raw ~= (
-        "PAX/" ~ data.planned.pax ~ " " ~ "TTL " ~ data.planned.pax ~ "\n");
+    var l_pax = (
+        "PAX/" ~ data.planned.pax ~ " " ~ "TTL " ~ data.planned.pax);
 #     # PAX in sections
 #     raw ~= (
 #         "A" ~ data.planned.paxFront ~ " B" ~ data.planned.paxMid ~ " C" ~ data.planned.paxRear ~ "\n");
     # MAC at ZFW
-    raw ~= (
-        "MACZFW " ~ data.planned.macZfw ~ "\n");
+    var l_maczfw = (
+        "MACZFW " ~ data.planned.macZfw);
     # MAC at TOW
-    raw ~= (
-        "MACTOW " ~ data.planned.macTow ~ "\n");
+    var l_mactow = (
+        "MACTOW " ~ data.planned.macTow);
     # MAC at LAW
-    raw ~= (
-        "MACLAW " ~ data.planned.macLaw ~ "\n");
+    var l_maclaw = (
+        "MACLAW " ~ data.planned.macLaw);
     # Fuel in tanks
-    raw ~= (
-        "FUEL IN TANKS " ~ data.actual.fuelInTanks ~ "\n");
+    var l_fuelInTanks = (
+        "FUEL IN TANKS " ~ data.actual.fuelInTanks);
 
-    data.planned.output = raw;                                  ### If you want a correctly formatted string with newlines, here is your chance to get it.
+    var l_dots = ("........................");
+
+
+
+
+
+
+    if (lsFinal == 0) {
+        var resultVector = [l_header(0),
+                            l_edno,
+                            l_fdata,
+                            l_deparr,
+                            l_zfw,
+                            l_tof,
+                            l_tow,
+                            l_tif,
+                            l_law,
+                            l_undld,
+                            l_pax,
+                            l_maczfw,
+                            l_mactow,
+                            l_maclaw,
+                            l_fuelInTanks
+                 ];
+    } elsif (lsFinal == 1) {
+
+    }
+    ;
 
     ### Normalize the line width to accomodate MCDU window
     var lineStretch = func() {
         var output = "";
-        var sep = split("\n", raw);
-        foreach (var i; sep) {
+        foreach (var i; resultVector) {
             output ~= sprintf("%-" ~ digitsPerLine ~ "s", i);
 
 #             var len = digitsPerLine - size(sep[i]);
@@ -367,6 +403,12 @@ var construct = func(lsFinal, planned, actual) {
 
     sendMessage(finalString);
 
+
+
+    ### Layouts
+
+
+
     ### QUICK AND VERY DIRTY MESSAGE SPREADER
     if ( size(finalString) > 216) {
         sendMessage(substr(finalString, 216));
@@ -377,6 +419,9 @@ var construct = func(lsFinal, planned, actual) {
     }
 
 };
+
+
+
 
 # Send Output to ACARS
 var sendMessage = func(s) {
